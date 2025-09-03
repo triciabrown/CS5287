@@ -1591,9 +1591,6 @@ The architecture is designed to scale through the subsequent course assignments 
 ![MQTT Discovery](screenshots/mqtt-auto-discovery.png)
 *Figure B3.2: Home Assistant MQTT integration showing automatically discovered plant sensors*
 
-![Plant Health Status](screenshots/plant-health-alerts.png)
-*Figure B3.3: Plant health monitoring with alerts and recommendations*
-
 #### B4. End-to-End Pipeline Verification
 ![Pipeline Monitoring](screenshots/pipeline-data-flow.png)
 *Figure B4.1: Terminal windows showing complete data flow from sensors through Kafka to MongoDB*
