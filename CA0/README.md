@@ -1836,7 +1836,7 @@ The architecture is designed to scale through the subsequent course assignments 
 ## Appendix
 
 ### A. Network Diagram
-[Include the PlantUML network diagram PNG/SVG here]
+![PlantUML network diagram](screenshots/plant_monitoring_network_diagram.png)
 
 ### B. Screenshots
 
