@@ -674,135 +674,18 @@ cd /opt/mongodb
 sudo docker compose up -d
 ```
 
-version: '3.8'
-services:
-  mongodb:
-    image: mongo:6.0.4
-    hostname: mongodb
-    container_name: mongodb
-    ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=plantadmin
-      - MONGO_INITDB_ROOT_PASSWORD=SecurePlantPass123!
-      - MONGO_INITDB_DATABASE=plant_monitoring
-    command: mongod --auth --bind_ip_all --wiredTigerCacheSizeGB 0.25
-    restart: unless-stopped
-    mem_limit: 400m
-EOF
+**Configuration Files**: 
+Complete MongoDB deployment configuration available at `vm-configurations/vm-2-mongodb/`:
+- `docker-compose.yml` - MongoDB container with authentication and memory optimization
+- `init-db.js` - Database initialization script with sample data
+- `README.md` - Step-by-step deployment instructions
 
-# Step 3: Start MongoDB
-docker compose up -d
-
-# Step 4: Initialize database interactively
-docker compose exec mongodb mongosh --username plantadmin --password SecurePlantPass123! --authenticationDatabase admin
-
-# In the MongoDB shell, run:
-use plant_monitoring
-
-db.createUser({
-  user: "plantuser",
-  pwd: "PlantUserPass123!",
-  roles: [{ role: "readWrite", db: "plant_monitoring" }]
-});
-
-db.createCollection("plants");
-db.createCollection("sensor_readings");
-db.createCollection("alerts");
-db.createCollection("care_events");
-
-db.plants.insertMany([
-  {
-    plantId: "plant-001",
-    species: "Monstera Deliciosa",
-    location: "Living Room",
-    plantedDate: new Date("2024-01-15"),
-    careInstructions: {
-      wateringFrequency: "weekly",
-      lightRequirement: "bright indirect",
-      temperatureRange: "18-24°C"
-    }
-  },
-  {
-    plantId: "plant-002",
-    species: "Snake Plant", 
-    location: "Bedroom",
-    plantedDate: new Date("2024-02-20"),
-    careInstructions: {
-      wateringFrequency: "bi-weekly",
-      lightRequirement: "low to moderate",
-      temperatureRange: "15-27°C"
-    }
-  }
-]);
-
-exit
-
-# Step 5: Test connection
-docker compose exec mongodb mongosh --username plantuser --password PlantUserPass123! --authenticationDatabase plant_monitoring plant_monitoring --eval "db.plants.countDocuments()"
-# Should return: 2
-```
-
-**Database Initialization Reference** (`/opt/mongodb/init-mongo.js`):
-```javascript
-// Switch to plant_monitoring database
-db = db.getSiblingDB('plant_monitoring');
-
-// Create application user
-db.createUser({
-  user: "plantuser",
-  pwd: "PlantUserPass123!",
-  roles: [{ role: "readWrite", db: "plant_monitoring" }]
-});
-
-// Create collections with validation
-db.createCollection("plants", {
-  validator: {
-    $jsonSchema: {
-      bsonType: "object",
-      required: ["plantId", "species", "location"],
-      properties: {
-        plantId: { bsonType: "string" },
-        species: { bsonType: "string" },
-        location: { bsonType: "string" },
-        plantedDate: { bsonType: "date" },
-        careInstructions: { bsonType: "object" }
-      }
-    }
-  }
-});
-
-db.createCollection("sensor_readings");
-db.createCollection("alerts");
-db.createCollection("care_events");
-
-// Insert sample plant data
-db.plants.insertMany([
-  {
-    plantId: "plant-001",
-    species: "Monstera Deliciosa",
-    commonName: "Monstera",
-    location: "Living Room",
-    plantedDate: new Date("2024-03-15"),
-    careInstructions: {
-      moistureMin: 40,
-      moistureMax: 60,
-      lightRequirement: "bright-indirect",
-      wateringFrequency: "weekly"
-    }
-  },
-  {
-    plantId: "plant-002",
-    species: "Sansevieria trifasciata",
-    commonName: "Snake Plant",
-    location: "Bedroom",
-    plantedDate: new Date("2024-01-10"),
-    careInstructions: {
-      moistureMin: 20,
-      moistureMax: 40,
-      lightRequirement: "low-to-bright",
-      wateringFrequency: "bi-weekly"
-    }
+**Database Initialization**: 
+Complete database setup script available at `vm-configurations/vm-2-mongodb/init-db.js` with:
+- User creation and authentication setup
+- Collection schemas and validation rules  
+- Sample plant data (2 plant profiles with care instructions)
+- Proper indexing for performance
 
 ### VM-3: Plant Care Processor
 
@@ -829,134 +712,16 @@ scp -r vm-configurations/vm-3-processor/* ubuntu@VM-3-IP:/opt/processor/
 cd /opt/processor
 sudo docker compose up -d --build
 ```
-```javascript
-const kafka = require('kafkajs');
-const { MongoClient } = require('mongodb');
-const mqtt = require('mqtt');
 
-class PlantCareProcessor {
-  constructor() {
-    // Kafka configuration
-    this.kafka = kafka({
-      clientId: 'plant-care-processor',
-      brokers: ['10.0.143.200:9092']
-    });
-    this.consumer = this.kafka.consumer({ groupId: 'plant-processor-group' });
-    this.producer = this.kafka.producer();
-
-    // MongoDB configuration
-    this.mongoUrl = 'mongodb://plantuser:PlantUserPass123!@10.0.135.192:27017/plant_monitoring';
-    this.mongoClient = new MongoClient(this.mongoUrl);
-
-    // MQTT configuration
-    this.mqttClient = mqtt.connect('mqtt://10.0.15.111:1883');
-
-    this.plantProfiles = {
-      'ficus-lyrata': { moistureMin: 40, moistureMax: 60, lightMin: 800 },
-      'sansevieria': { moistureMin: 20, moistureMax: 40, lightMin: 200 }
-    };
-  }
-
-  async start() {
-    await this.consumer.connect();
-    await this.producer.connect();
-    await this.mongoClient.connect();
-    
-    await this.consumer.subscribe({ topic: 'plant-sensors' });
-    
-    await this.consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
-        const sensorData = JSON.parse(message.value.toString());
-        await this.processPlantData(sensorData);
-      },
-    });
-  }
-
-  async processPlantData(sensorData) {
-    console.log(`Processing data for ${sensorData.plantId}`);
-    
-    // Store raw sensor data
-    await this.mongoClient.db('plant_monitoring')
-      .collection('sensor_readings')
-      .insertOne({
-        ...sensorData,
-        processedAt: new Date()
-      });
-
-    // Analyze plant health
-    const plant = await this.mongoClient.db('plant_monitoring')
-      .collection('plants')
-      .findOne({ plantId: sensorData.plantId });
-
-    if (plant) {
-      const healthAnalysis = this.analyzePlantHealth(sensorData, plant.careInstructions);
-      
-      // Send alerts if needed
-      if (healthAnalysis.alerts.length > 0) {
-        await this.sendAlerts(sensorData.plantId, healthAnalysis.alerts);
-      }
-
-      // Update Home Assistant
-      await this.updateHomeAssistant(sensorData.plantId, {
-        moisture: sensorData.sensors.soilMoisture,
-        health: healthAnalysis.healthScore,
-        status: healthAnalysis.status,
-        alerts: healthAnalysis.alerts
-      });
-    }
-  }
-
-  analyzePlantHealth(sensorData, careInstructions) {
-    const alerts = [];
-    let healthScore = 100;
-
-    // Check moisture levels
-    if (sensorData.sensors.soilMoisture < careInstructions.moistureMin) {
-      alerts.push({ type: 'WATER_NEEDED', severity: 'HIGH', message: 'Soil moisture too low' });
-      healthScore -= 30;
-    }
-
-    if (sensorData.sensors.soilMoisture > careInstructions.moistureMax) {
-      alerts.push({ type: 'OVERWATERED', severity: 'MEDIUM', message: 'Soil moisture too high' });
-      healthScore -= 20;
-    }
-
-    // Check light levels
-    if (sensorData.sensors.lightLevel < 200) {
-      alerts.push({ type: 'INSUFFICIENT_LIGHT', severity: 'MEDIUM', message: 'Light level too low' });
-      healthScore -= 15;
-    }
-
-    const status = healthScore > 80 ? 'healthy' : healthScore > 60 ? 'needs_attention' : 'critical';
-
-    return { healthScore, status, alerts };
-  }
-
-  async sendAlerts(plantId, alerts) {
-    for (const alert of alerts) {
-      await this.producer.send({
-        topic: 'plant-alerts',
-        messages: [{
-          key: plantId,
-          value: JSON.stringify({
-            plantId,
-            timestamp: new Date(),
-            ...alert
-          })
-        }]
-      });
-    }
-  }
-
-  async updateHomeAssistant(plantId, data) {
-    const topic = `homeassistant/sensor/plant_${plantId.replace(/-/g, '_')}/state`;
-    this.mqttClient.publish(topic, JSON.stringify(data));
-  }
-}
+**Application Code**: 
+Complete processor implementation available at `vm-configurations/vm-3-processor/plant-care-processor/app.js` with:
+- Kafka consumer/producer configuration
+- MongoDB connection and data storage
+- Plant health analysis algorithms  
+- MQTT discovery message publishing
+- Alert generation and notification system
 
 ### VM-4: Home Assistant + Plant Sensors
-
-**Home Assistant + MQTT + Plant Sensors**:
 
 **Deployment Files**: See `vm-configurations/vm-4-homeassistant/` folder in this repository for:
 - `docker-compose.yml` - Complete Home Assistant, MQTT broker, and sensor configuration
@@ -1702,20 +1467,6 @@ sudo docker logs plant-sensor-001
 ✅ **Performance Optimization**: Memory-tuned for t2.micro instances  
 ✅ **Complete Documentation**: Architecture, deployment steps, troubleshooting, lessons learned  
 
-### 🏆 **Final Demonstration Results**
-
-**Pipeline Performance:**
-- **End-to-End Latency**: <1000ms from sensor reading to dashboard display
-- **Sensor Discovery**: All 10 sensors automatically appear in Home Assistant
-- **Data Processing**: Real-time health analysis with alerts
-- **System Stability**: All services running with proper restart policies
-- **Resource Utilization**: Optimized for 1GB RAM t2.micro constraints
-
----
-
-## Cost Analysis
-- Demo script outline ready
-
 ### 💡 Key Lessons Learned (Educational Value)
 
 **Critical AWS Concepts:**
@@ -1742,33 +1493,6 @@ sudo docker logs plant-sensor-001
 
 This experience perfectly demonstrates real-world cloud infrastructure challenges and solutions - excellent preparation for CA1 (Infrastructure as Code) where Terraform will eliminate these manual configuration surprises.
 
----
-
-## Next Session Preparation
-
-**Pre-Session Checklist:**
-- [ ] Confirm all VMs are running in AWS Console
-- [ ] Test SSH connectivity from VM-4 to confirm security groups still correct
-- [ ] Have VS Code or terminal ready for copy-pasting commands
-- [ ] Prepare screenshot capture tool for demo documentation
-
-**Session Goals:**
-- [x] Complete software installation on all 4 VMs ✅ COMPLETED
-- [x] Verify end-to-end IoT pipeline functionality ✅ COMPLETED
-- [ ] **Capture required screenshots** (See `screenshots/README.md` for detailed guide)
-  - [ ] AWS infrastructure screenshots (VPC, EC2, Security Groups)
-  - [ ] Application service screenshots (Docker, Kafka, MongoDB)
-  - [ ] Home Assistant dashboard with live plant data
-  - [ ] End-to-end pipeline verification screenshots
-- [ ] Create demo video (1-2 minutes showing complete data flow)
-- [ ] Final README review and submission
-
-**Emergency Backup Plan:**
-- AWS Session Manager access configured if SSH issues recur
-- All commands documented for manual execution if automation fails
-- Network troubleshooting procedures documented for quick reference
-
----
 
 ## Implementation Changes from Original Plan
 
@@ -1879,22 +1603,7 @@ The architecture is designed to scale through the subsequent course assignments 
 
 ---
 
-**📸 Screenshot Capture Instructions:**
-1. **Save screenshots** in PNG format to `CA0/screenshots/` folder
-2. **Use descriptive filenames** matching the references above
-3. **Ensure high resolution** (at least 1280x720) for readability
-4. **Include full browser/terminal windows** to show context
-5. **Capture during active operation** to show live data
-
-### C. Demo Video Script
-1. Show Home Assistant dashboard with current plant status
-2. SSH into sensor VM, show containers running
-3. Monitor Kafka topic showing incoming sensor data
-4. Check MongoDB for stored sensor readings
-5. Demonstrate alert generation when moisture is low
-6. Show Home Assistant updating with new status
-
-### D. Complete Application Files
+### C. Complete Application Files
 
 **Repository Structure (`vm-configurations/` folder):**
 ```
