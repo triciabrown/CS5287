@@ -1,0 +1,112 @@
+---
+# Deploy Plant Processor application to VM-3
+- hosts: processor_vm
+  become: yes
+  vars:
+    app_dir: /opt/apps/processor
+    ansible_user: ubuntu
+  tasks:
+    - name: Create Processor application directory
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/plant-care-processor"
+
+    - name: Get MongoDB credentials from AWS Secrets Manager
+      command: aws secretsmanager get-secret-value --secret-id "plant-monitoring-dev/mongodb/credentials" --query "SecretString" --output text
+      register: mongodb_secret_result
+      delegate_to: localhost
+      become: no
+
+    - name: Parse MongoDB credentials
+      set_fact:
+        mongodb_credentials: "{{ mongodb_secret_result.stdout | from_json }}"
+
+    - name: Copy Processor docker-compose.yml with IP substitution and credentials
+      template:
+        src: ../../applications/vm-3-processor/docker-compose.yml
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      vars:
+        kafka_vm_private_ip: "{{ hostvars[groups['kafka_vm'][0]]['ansible_host'] }}"
+        mongodb_vm_private_ip: "{{ hostvars[groups['mongodb_vm'][0]]['ansible_host'] }}"
+        homeassistant_vm_private_ip: "{{ hostvars[groups['homeassistant_vm'][0]]['ansible_host'] }}"
+        mongodb_connection_string: "{{ mongodb_credentials.connection_string.replace('{MONGODB_HOST}', hostvars[groups['mongodb_vm'][0]]['ansible_host']) }}"
+
+    - name: Copy Processor application files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      loop:
+        - { src: '../../applications/vm-3-processor/plant-care-processor/app.js', dest: '{{ app_dir }}/plant-care-processor/app.js' }
+        - { src: '../../applications/vm-3-processor/plant-care-processor/package.json', dest: '{{ app_dir }}/plant-care-processor/package.json' }
+        - { src: '../../applications/vm-3-processor/plant-care-processor/Dockerfile', dest: '{{ app_dir }}/plant-care-processor/Dockerfile' }
+
+    - name: Wait for Kafka to be available
+      wait_for:
+        host: "{{ hostvars[groups['kafka_vm'][0]]['ansible_host'] }}"
+        port: 9092
+        delay: 10
+        timeout: 300
+
+    - name: Wait for MongoDB to be available (with retry logic for network stability)
+      wait_for:
+        host: "{{ hostvars[groups['mongodb_vm'][0]]['ansible_host'] }}"
+        port: 27017
+        delay: 10
+        timeout: 60
+      ignore_errors: yes
+      register: mongodb_check
+
+    - name: Display MongoDB connectivity status
+      debug:
+        msg: "MongoDB connectivity: {{ 'SUCCESS' if mongodb_check is succeeded else 'WARNING - proceeding anyway, will retry during service startup' }}"
+
+    - name: Stop any existing Processor containers
+      command: docker compose down
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      ignore_errors: yes
+
+    - name: Build and start Processor service
+      command: docker compose up -d --build
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+
+    - name: Wait for Processor to start
+      pause:
+        seconds: 30
+
+    - name: Check Processor container status
+      command: docker compose ps
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      register: processor_status
+
+    - name: Display Processor status
+      debug:
+        msg: "Processor service status: {{ processor_status.stdout_lines }}"
+
+    - name: Show Processor logs
+      command: docker compose logs --tail=20 plant-processor
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      register: processor_logs
+
+    - name: Display recent Processor logs
+      debug:
+        msg: "Recent Processor logs: {{ processor_logs.stdout_lines }}"

@@ -1,0 +1,8 @@
+# Master teardown playbook: imports all modular teardown playbooks in dependency order
+---
+- import_playbook: teardown_compute.yml
+- import_playbook: teardown_nat.yml
+- import_playbook: teardown_eip.yml
+- import_playbook: teardown_enis.yml
+- import_playbook: teardown_security.yml
+- import_playbook: teardown_networking.yml

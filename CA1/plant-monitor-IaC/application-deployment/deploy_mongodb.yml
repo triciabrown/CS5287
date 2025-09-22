@@ -1,0 +1,142 @@
+---
+# Deploy MongoDB application to VM-2
+- hosts: mongodb_vm
+  become: yes
+  vars:
+    app_dir: /opt/apps/mongodb
+    ansible_user: ubuntu
+  tasks:
+    - name: Create MongoDB application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Get MongoDB credentials from AWS Secrets Manager
+      command: >
+        aws secretsmanager get-secret-value 
+        --secret-id "{{ mongodb_credentials_secret }}" 
+        --query SecretString --output text
+      register: mongodb_credentials_raw
+      delegate_to: localhost
+      become: no
+
+    - name: Parse MongoDB credentials
+      set_fact:
+        mongodb_credentials: "{{ mongodb_credentials_raw.stdout | from_json }}"
+
+    - name: Create MongoDB data and config directories (required for Docker volumes)
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "999"
+        group: "999"
+        mode: '0755'
+      loop:
+        - /opt/mongodb/data
+        - /opt/mongodb/config
+
+    - name: Generate MongoDB docker-compose.yml from template
+      template:
+        src: ../../applications/vm-2-mongodb/docker-compose.yml
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      vars:
+        mongodb_root_username: "{{ mongodb_credentials.root_username }}"
+        mongodb_root_password: "{{ mongodb_credentials.root_password }}"
+        mongodb_database: "{{ mongodb_credentials.database_name }}"
+
+    - name: Generate MongoDB initialization script from template
+      template:
+        src: ../../applications/vm-2-mongodb/init-db.js
+        dest: "{{ app_dir }}/init-db.js"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      vars:
+        MONGO_ROOT_USERNAME: "{{ mongodb_credentials.root_username }}"
+        MONGO_ROOT_PASSWORD: "{{ mongodb_credentials.root_password }}"
+        MONGO_APP_USERNAME: "{{ mongodb_credentials.app_username }}"
+        MONGO_APP_PASSWORD: "{{ mongodb_credentials.app_password }}"
+
+    - name: Ensure ubuntu user is in docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Reset SSH connection to allow user group changes to take effect
+      meta: reset_connection
+
+    - name: Stop any existing MongoDB containers
+      command: docker compose down
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      ignore_errors: yes
+
+    - name: Start MongoDB service
+      command: docker compose up -d
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+
+    - name: Wait for MongoDB to be ready
+      wait_for:
+        port: 27017
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 30
+        timeout: 300
+
+    - name: Wait additional time for MongoDB initialization
+      pause:
+        seconds: 30
+
+    - name: Wait for MongoDB initialization to complete
+      pause:
+        seconds: 10
+
+    - name: Verify MongoDB initialization
+      command: >
+        docker compose exec -T mongodb mongosh plant_monitoring 
+        -u "{{ mongodb_credentials.app_username }}" 
+        -p "{{ mongodb_credentials.app_password }}" 
+        --eval "db.getCollectionNames(); db.plants.countDocuments();"
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      register: mongo_init_result
+      ignore_errors: yes
+
+    - name: Display MongoDB initialization result
+      debug:
+        msg: "MongoDB initialization: {{ mongo_init_result.stdout_lines if mongo_init_result.stdout_lines is defined else 'Failed or no output' }}"
+
+    - name: Test MongoDB connection
+      command: >
+        docker compose exec -T mongodb mongosh 
+        --eval "db.adminCommand('ping')"
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      register: mongo_ping
+      ignore_errors: yes
+
+    - name: Display MongoDB ping result
+      debug:
+        msg: "MongoDB ping test: {{ mongo_ping.stdout_lines if mongo_ping.stdout_lines is defined else 'Failed' }}"
+
+    - name: Check MongoDB container status
+      command: docker compose ps
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: ubuntu
+      register: mongodb_status
+
+    - name: Display MongoDB status
+      debug:
+        msg: "MongoDB service status: {{ mongodb_status.stdout_lines }}"
