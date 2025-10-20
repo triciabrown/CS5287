@@ -1,0 +1,86 @@
+ubuntu@ip-10-0-1-6:~$ docker network inspect plant-monitoring_plant-network --format "{{json .}}" | jq
+{
+  "Name": "plant-monitoring_plant-network",
+  "Id": "w8vj2bglbaq8snl1i9xu7u6d3",
+  "Created": "2025-10-19T23:32:51.017142084Z",
+  "Scope": "swarm",
+  "Driver": "overlay",
+  "EnableIPv4": true,
+  "EnableIPv6": false,
+  "IPAM": {
+    "Driver": "default",
+    "Options": null,
+    "Config": [
+      {
+        "Subnet": "10.10.0.0/24",
+        "Gateway": "10.10.0.1"
+      }
+    ]
+  },
+  "Internal": false,
+  "Attachable": false,
+  "Ingress": false,
+  "ConfigFrom": {
+    "Network": ""
+  },
+  "ConfigOnly": false,
+  "Containers": {
+    "b7b498f83a6e02493012d766c36fc641bdb251196173eb216db3f4fe68cb1c7c": {
+      "Name": "plant-monitoring_mosquitto.1.s2ot3l45jdokypcqfft9utoe6",
+      "EndpointID": "06dcdc612c7d8b58f574862c1a5da6546a8a80d06dfcfe5e2c0f62a001045155",
+      "MacAddress": "02:42:0a:0a:00:0d",
+      "IPv4Address": "10.10.0.13/24",
+      "IPv6Address": ""
+    },
+    "e272267ff921854f0ba967b3dec149c6554f8ba78c97cbae67a5916688da3a13": {
+      "Name": "plant-monitoring_homeassistant.1.t4q7inl56nnh4uq7z0cxy3vcj",
+      "EndpointID": "033ac759b509198279128a4f2754122959141d40751e266889fda8494a29a566",
+      "MacAddress": "02:42:0a:0a:00:0f",
+      "IPv4Address": "10.10.0.15/24",
+      "IPv6Address": ""
+    },
+    "e2d081a5c3773619bbb5c9af87002acdd4f602e0003526478b1369e27aaf7eb9": {
+      "Name": "plant-monitoring_processor.1.cjl241fz7zow6oghqbdla4qw0",
+      "EndpointID": "ea249dda7feb0806ff0713c22953639e0f1fe65111fe9cc8a72e8ba82b02b718",
+      "MacAddress": "02:42:0a:0a:00:15",
+      "IPv4Address": "10.10.0.21/24",
+      "IPv6Address": ""
+    },
+    "lb-plant-monitoring_plant-network": {
+      "Name": "plant-monitoring_plant-network-endpoint",
+      "EndpointID": "c0a9cc628b174ff0f4b698a1523200a4add7e9e1bddb1a130a0a8c7073b608cd",
+      "MacAddress": "02:42:0a:0a:00:06",
+      "IPv4Address": "10.10.0.6/24",
+      "IPv6Address": ""
+    }
+  },
+  "Options": {
+    "com.docker.network.driver.overlay.vxlanid_list": "4097",
+    "encrypted": "true"
+  },
+  "Labels": {
+    "com.docker.stack.namespace": "plant-monitoring"
+  },
+  "Peers": [
+    {
+      "Name": "c5b40791c74a",
+      "IP": "10.0.1.6"
+    },
+    {
+      "Name": "3696986368b3",
+      "IP": "10.0.2.27"
+    },
+    {
+      "Name": "735621e46c55",
+      "IP": "10.0.2.101"
+    },
+    {
+      "Name": "b114e2affa0d",
+      "IP": "10.0.2.200"
+    },
+    {
+      "Name": "104c255fc385",
+      "IP": "10.0.2.180"
+    }
+  ]
+}
